@@ -2,13 +2,13 @@
 set -e
 
 # --- 基础配置 ---
-export HF_ENDPOINT=https://hf-mirror.com
+# export HF_ENDPOINT=https://hf-mirror.com/
 # export HF_ENDPOINT=http://192.168.50.202:18090
 
 MODEL_ID="HuggingFaceTB/SmolLM2-135M"
 CHAT_TEMPLATE_MODEL="HuggingFaceTB/SmolLM2-135M-Instruct"  # 从 Instruct 版拷贝 chat template 到 base model
 DATASET="HuggingFaceTB/smoltalk2"
-DATASET_NAME="sft"
+DATASET_NAME="SFT"
 STRATEGY="mac" # 可选: deepspeed / fsdp / mac
 
 # 自动检测 GPU 数量，允许环境变量覆盖
@@ -38,7 +38,7 @@ LR=2e-5
 BS_PER_GPU=8
 GRAD_ACCUM=4
 STEPS=500
-STREAMING=false
+STREAMING=true
 OUTPUT_DIR="./output_${STRATEGY}_smollm2"
 
 # FSDP 需要指定模型的 decoder layer 类名，换模型时同步修改

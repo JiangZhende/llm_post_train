@@ -137,6 +137,16 @@ def main():
         if sft_config.max_steps <= 0:
             raise ValueError("使用 streaming=True 时，必须设置 max_steps (例如 --max_steps 1000)")
         eval_dataset = None
+        sft_config.eval_strategy = "no"  # 流式数据集无法做 eval，强制关闭
+        if sft_config.assistant_only_loss:
+            # TRL 1.6 在 streaming 模式下会先将 messages 转为字符串再检查格式，
+            # 导致 is_conversational 收到 str 而非 dict，触发 AttributeError。
+            sft_config.assistant_only_loss = False
+            if sft_config.local_rank <= 0:
+                logger.warning(
+                    "streaming 模式下 TRL 1.6 不支持 assistant_only_loss，已自动关闭。"
+                    "loss 将覆盖所有 token（含 user turn），不影响训练正常运行。"
+                )
     else:
         eval_dataset = None
         if isinstance(raw_datasets, dict):
