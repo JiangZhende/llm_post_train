@@ -50,22 +50,23 @@ if [ "$STRATEGY" == "deepspeed" ]; then
 
     echo "Running DeepSpeed"
 
-    torchrun --nproc_per_node=$NUM_GPUS dpo.py \
-        --model_name_or_path $MODEL_ID \
-        --dataset_path $DATASET \
-        --dataset_split $DATASET_SPLIT \
+    torchrun --nproc_per_node="$NUM_GPUS" dpo.py \
+        --model_name_or_path "$MODEL_ID" \
+        --dataset_path "$DATASET" \
+        --dataset_name "$DATASET_NAME" \
+        --dataset_split "$DATASET_SPLIT" \
         $STREAMING_ARG \
-        --output_dir $OUTPUT_DIR \
+        --output_dir "$OUTPUT_DIR" \
         --beta 0.1 \
         --max_length 1024 \
         --max_prompt_length 512 \
-        --learning_rate $LR \
+        --learning_rate "$LR" \
         --lr_scheduler_type cosine \
         --warmup_ratio 0.03 \
         --weight_decay 0.01 \
-        --per_device_train_batch_size $BS_PER_GPU \
-        --gradient_accumulation_steps $GRAD_ACCUM \
-        --max_steps $STEPS \
+        --per_device_train_batch_size "$BS_PER_GPU" \
+        --gradient_accumulation_steps "$GRAD_ACCUM" \
+        --max_steps "$STEPS" \
         --logging_steps 10 \
         --save_steps 100 \
         --eval_strategy steps \
@@ -79,22 +80,23 @@ elif [ "$STRATEGY" == "fsdp" ]; then
     echo "Running FSDP"
 
     FSDP_CONFIG="{\"transformer_layer_cls_to_wrap\": \"$FSDP_DECODER_LAYER\"}"
-    torchrun --nproc_per_node=$NUM_GPUS dpo.py \
-        --model_name_or_path $MODEL_ID \
-        --dataset_path $DATASET \
-        --dataset_split $DATASET_SPLIT \
+    torchrun --nproc_per_node="$NUM_GPUS" dpo.py \
+        --model_name_or_path "$MODEL_ID" \
+        --dataset_path "$DATASET" \
+        --dataset_name "$DATASET_NAME" \
+        --dataset_split "$DATASET_SPLIT" \
         $STREAMING_ARG \
-        --output_dir $OUTPUT_DIR \
+        --output_dir "$OUTPUT_DIR" \
         --beta 0.1 \
         --max_length 1024 \
         --max_prompt_length 512 \
-        --learning_rate $LR \
+        --learning_rate "$LR" \
         --lr_scheduler_type cosine \
         --warmup_ratio 0.03 \
         --weight_decay 0.01 \
-        --per_device_train_batch_size $BS_PER_GPU \
-        --gradient_accumulation_steps $GRAD_ACCUM \
-        --max_steps $STEPS \
+        --per_device_train_batch_size "$BS_PER_GPU" \
+        --gradient_accumulation_steps "$GRAD_ACCUM" \
+        --max_steps "$STEPS" \
         --logging_steps 10 \
         --save_steps 100 \
         --eval_strategy steps \
@@ -113,21 +115,22 @@ elif [ "$STRATEGY" == "mac" ]; then
 
     # MPS 显存有限，batch size=1，grad accum 补偿等效 batch size
     python dpo.py \
-        --model_name_or_path $MODEL_ID \
-        --dataset_path $DATASET \
-        --dataset_split $DATASET_SPLIT \
+        --model_name_or_path "$MODEL_ID" \
+        --dataset_path "$DATASET" \
+        --dataset_name "$DATASET_NAME" \
+        --dataset_split "$DATASET_SPLIT" \
         $STREAMING_ARG \
-        --output_dir $OUTPUT_DIR \
+        --output_dir "$OUTPUT_DIR" \
         --beta 0.1 \
         --max_length 1024 \
         --max_prompt_length 512 \
-        --learning_rate $LR \
+        --learning_rate "$LR" \
         --lr_scheduler_type cosine \
         --warmup_ratio 0.03 \
         --weight_decay 0.01 \
         --per_device_train_batch_size 1 \
         --gradient_accumulation_steps 8 \
-        --max_steps $STEPS \
+        --max_steps "$STEPS" \
         --logging_steps 10 \
         --save_steps 100 \
         --eval_strategy steps \

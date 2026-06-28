@@ -76,6 +76,7 @@ if [ "$STRATEGY" == "deepspeed" ]; then
         --eval_steps 100 \
         --deepspeed ds_config.json \
         --bf16 True \
+        --assistant_only_loss True \
         --per_device_train_batch_size "$BS_PER_GPU" \
         --gradient_accumulation_steps "$GRAD_ACCUM" \
         --gradient_checkpointing True
@@ -104,6 +105,7 @@ elif [ "$STRATEGY" == "fsdp" ]; then
         --fsdp "full_shard auto_wrap" \
         --fsdp_config "$FSDP_CONFIG" \
         --bf16 True \
+        --assistant_only_loss True \
         --per_device_train_batch_size "$BS_PER_GPU" \
         --gradient_accumulation_steps "$GRAD_ACCUM" \
         --gradient_checkpointing True
@@ -132,6 +134,7 @@ elif [ "$STRATEGY" == "mac" ]; then
         --eval_steps 100 \
         --bf16 False \
         --fp16 False \
+        --assistant_only_loss True \
         --per_device_train_batch_size 1 \
         --gradient_accumulation_steps 8 \
         --gradient_checkpointing True

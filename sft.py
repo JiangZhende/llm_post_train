@@ -14,7 +14,7 @@ from transformers import (
     HfArgumentParser,
     set_seed,
 )
-from trl import SFTConfig, SFTTrainer, DataCollatorForCompletionOnlyLM, clone_chat_template
+from trl import SFTConfig, SFTTrainer, clone_chat_template
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,6 @@ class ModelArguments:
     dataset_name: str = field(default="all", metadata={"help": "数据集配置子集"})
     streaming: bool = field(default=False, metadata={"help": "是否开启流式加载数据集"})
     chat_template_model: Optional[str] = field(default=None, metadata={"help": "用于 clone_chat_template 的参考模型 ID，如果为空则使用当前模型 ID"})
-    user_turn_mask: bool = field(default=True, metadata={"help": "是否只对 assistant 回复计算 loss，屏蔽 user turn"})
     verbose: bool = field(default=False, metadata={"help": "是否打印调试样本和 tokenization 信息"})
     # LoRA
     use_lora: bool = field(default=False, metadata={"help": "是否使用 LoRA"})
@@ -165,36 +164,13 @@ def main():
         print(tokenized["input_ids"][0].tolist()[:100])
 
     # 8. 初始化 Trainer
-    data_collator = None
-    if model_args.user_turn_mask:
-        # add_generation_prompt=True 会在末尾追加 assistant 发言头（如 "<|im_start|>assistant\n"），
-        # 与 False 版本的字符串差值即为 response_template。
-        dummy_user = [{"role": "user", "content": "x"}]
-        with_prompt = tokenizer.apply_chat_template(dummy_user, tokenize=False, add_generation_prompt=True)
-        without_prompt = tokenizer.apply_chat_template(dummy_user, tokenize=False, add_generation_prompt=False)
-        assert with_prompt.startswith(without_prompt), (
-            "chat template 的 add_generation_prompt=True 输出不是 False 输出的前缀扩展，"
-            "无法安全提取 response_template，请传入 --user_turn_mask False 或更换模型"
-        )
-        response_template = with_prompt[len(without_prompt):]
-        assert response_template, (
-            "无法从 chat template 提取 response_template，该模型可能不支持 add_generation_prompt，"
-            "请传入 --user_turn_mask False 或更换模型"
-        )
-        if sft_config.local_rank <= 0:
-            logger.info(f"User turn mask 已启用，response_template: {repr(response_template)}")
-        data_collator = DataCollatorForCompletionOnlyLM(
-            response_template=response_template,
-            tokenizer=tokenizer,
-        )
-
+    # assistant_only_loss 由 SFTConfig 控制（--assistant_only_loss True），TRL 1.x 内置支持
     trainer = SFTTrainer(
         model=model,
         args=sft_config,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         processing_class=tokenizer,
-        data_collator=data_collator,
     )
 
     # 9. 执行训练

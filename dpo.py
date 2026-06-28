@@ -126,10 +126,14 @@ def main():
         raise ValueError("streaming=True 时必须设置 --max_steps")
 
     # 格式化为 DPOTrainer 期望的 prompt/chosen/rejected 字符串
+    # smoltalk2 preference 的 prompt 列是纯字符串，chosen/rejected 是 list[dict]
     def format_chat(example):
+        prompt = example[args.prompt_column]
+        if isinstance(prompt, str):
+            prompt = [{"role": "user", "content": prompt}]
         return {
             "prompt": tokenizer.apply_chat_template(
-                example[args.prompt_column], tokenize=False, add_generation_prompt=True
+                prompt, tokenize=False, add_generation_prompt=True
             ),
             "chosen": tokenizer.apply_chat_template(
                 example[args.chosen_column], tokenize=False
@@ -140,6 +144,19 @@ def main():
         }
 
     train_dataset = raw.map(format_chat)
+
+    # 尝试加载 test split 作为 eval；若数据集无 test split 则关闭 eval
+    eval_dataset = None
+    if not args.streaming:
+        try:
+            load_kwargs_eval = dict()
+            if args.dataset_name:
+                load_kwargs_eval["name"] = args.dataset_name
+            raw_eval = load_dataset(args.dataset_path, split="test", **load_kwargs_eval)
+            eval_dataset = raw_eval.map(format_chat)
+        except Exception:
+            logger.warning("未找到 test split，跳过 eval（eval_strategy 将被忽略）")
+            dpo_config.eval_strategy = "no"
 
     if dpo_config.local_rank <= 0:
         logger.info("="*40)
@@ -155,6 +172,7 @@ def main():
         ref_model=ref_model,
         args=dpo_config,
         train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         processing_class=tokenizer,
     )
 
