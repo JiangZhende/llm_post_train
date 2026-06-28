@@ -24,7 +24,7 @@ NUM_GPUS=${NUM_GPUS:-$(nvidia-smi -L 2>/dev/null | wc -l | tr -d ' ')}
 # lr_scheduler_type cosine   cosine 衰减：比 linear 收尾更平滑，最终 loss 通常更低
 # warmup_ratio 0.03          前 3% 步线性升温：防止训练初期大 LR 破坏预训练权重
 # weight_decay 0.01          AdamW 权重衰减：抑制过拟合，SFT 小数据集尤为重要
-# max_seq_length 2048        超长样本在此截断；设太小丢信息，设太大显存不够
+# max_length 2048            超长样本在此截断；设太小丢信息，设太大显存不够（TRL 1.x 改名自 max_seq_length）
 # bf16 True                  bfloat16：A100/H100 首选，比 fp16 数值范围更大更稳定
 # gradient_checkpointing     用重计算换显存：显存不足时开启，速度约降 20%
 # fsdp full_shard            参数/梯度/优化器状态全部分片到各卡，显存占用最省
@@ -68,7 +68,7 @@ if [ "$STRATEGY" == "deepspeed" ]; then
         --lr_scheduler_type cosine \
         --warmup_ratio 0.03 \
         --weight_decay 0.01 \
-        --max_seq_length 2048 \
+        --max_length 2048 \
         --max_steps "$STEPS" \
         --logging_steps 10 \
         --save_steps 100 \
@@ -96,7 +96,7 @@ elif [ "$STRATEGY" == "fsdp" ]; then
         --lr_scheduler_type cosine \
         --warmup_ratio 0.03 \
         --weight_decay 0.01 \
-        --max_seq_length 2048 \
+        --max_length 2048 \
         --max_steps "$STEPS" \
         --logging_steps 10 \
         --save_steps 100 \
@@ -126,7 +126,7 @@ elif [ "$STRATEGY" == "mac" ]; then
         --lr_scheduler_type cosine \
         --warmup_ratio 0.03 \
         --weight_decay 0.01 \
-        --max_seq_length 2048 \
+        --max_length 2048 \
         --max_steps "$STEPS" \
         --logging_steps 10 \
         --save_steps 100 \
