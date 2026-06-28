@@ -6,14 +6,14 @@ set -e
 export HF_ENDPOINT=http://192.168.50.202:18090
 
 MODEL_ID="HuggingFaceTB/SmolLM2-135M"
-DATASET="HuggingFaceTB/smoltalk2"
-DATASET_NAME="preference"   # smoltalk2 的 preference subset（447k，含 chosen/rejected）
+DATASET="trl-lib/ultrafeedback_binarized"
+DATASET_NAME=""         # 无子集配置
 DATASET_SPLIT="train"
 STRATEGY="mac" # 可选: deepspeed / fsdp / mac
 
 # 自动检测 GPU 数量，允许环境变量覆盖
 NUM_GPUS=${NUM_GPUS:-$(nvidia-smi -L 2>/dev/null | wc -l | tr -d ' ')}
-NUM_GPUS=${NUM_GPUS:-1}
+[ "${NUM_GPUS:-0}" -eq 0 ] && NUM_GPUS=1
 
 # --- 训练参数 ---
 # LR=5e-7        DPO 学习率远小于 SFT，过大会破坏对齐效果

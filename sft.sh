@@ -7,9 +7,29 @@ set -e
 
 MODEL_ID="HuggingFaceTB/SmolLM2-135M"
 CHAT_TEMPLATE_MODEL="HuggingFaceTB/SmolLM2-135M-Instruct"  # 从 Instruct 版拷贝 chat template 到 base model
+STRATEGY="mac" # 可选: deepspeed / fsdp / mac
+
+# --- 数据集配置 ---
+# 方案 A（默认）：smoltalk，有标准 train/test split，直接用
+# DATASET="HuggingFaceTB/smoltalk"
+# DATASET_NAME="all"          # 可选: smol-magpie-ultra / everyday-conversations 等子集
+# DATASET_SPLIT=""            # 留空：自动取 train split
+
+# 方案 B：smoltalk2（为 SmolLM3 重构，无 train split，需显式指定 split 名）
+# smoltalk2 SFT 主要 split：
+#   smoltalk_smollm3_smol_magpie_ultra_no_think   (406k，通用指令，推荐单 split)
+#   OpenHermes_2.5_no_think                        (384k，多领域)
+#   OpenThoughts3_1.2M_no_think_no_think           (435k，推理，无思维链)
+#   OpenThoughts3_1.2M_think                       (1.1M，含思维链，需模板支持)
+# 使用单个 split，取消注释以下三行：
+# DATASET="HuggingFaceTB/smoltalk2"
+# DATASET_NAME="SFT"
+# DATASET_SPLIT="smoltalk_smollm3_smol_magpie_ultra_no_think"
+#
+# 使用全部 SFT 数据（~3.3M 条，streaming 推荐），取消注释以下三行：
 DATASET="HuggingFaceTB/smoltalk2"
 DATASET_NAME="SFT"
-STRATEGY="mac" # 可选: deepspeed / fsdp / mac
+DATASET_SPLIT="ALL"
 
 # 自动检测 GPU 数量，允许环境变量覆盖
 NUM_GPUS=${NUM_GPUS:-$(nvidia-smi -L 2>/dev/null | wc -l | tr -d ' ')}
@@ -50,6 +70,11 @@ if [ "$STREAMING" = "true" ] || [ "$STREAMING" = "True" ] || [ "$STREAMING" = "1
     STREAMING_ARG="--streaming"
 fi
 
+SPLIT_ARG=""
+if [ -n "$DATASET_SPLIT" ]; then
+    SPLIT_ARG="--dataset_split $DATASET_SPLIT"
+fi
+
 echo "---------------------------------------"
 echo "Starting SFT Training with $STRATEGY"
 echo "GPUs: $NUM_GPUS, Learning Rate: $LR"
@@ -64,6 +89,7 @@ if [ "$STRATEGY" == "deepspeed" ]; then
         --chat_template_model "$CHAT_TEMPLATE_MODEL" \
         --dataset_path "$DATASET" \
         --dataset_name "$DATASET_NAME" \
+        $SPLIT_ARG \
         $STREAMING_ARG \
         --output_dir "$OUTPUT_DIR" \
         --learning_rate "$LR" \
@@ -93,6 +119,7 @@ elif [ "$STRATEGY" == "fsdp" ]; then
         --chat_template_model "$CHAT_TEMPLATE_MODEL" \
         --dataset_path "$DATASET" \
         --dataset_name "$DATASET_NAME" \
+        $SPLIT_ARG \
         $STREAMING_ARG \
         --output_dir "$OUTPUT_DIR" \
         --learning_rate "$LR" \
@@ -124,6 +151,7 @@ elif [ "$STRATEGY" == "mac" ]; then
         --chat_template_model "$CHAT_TEMPLATE_MODEL" \
         --dataset_path "$DATASET" \
         --dataset_name "$DATASET_NAME" \
+        $SPLIT_ARG \
         $STREAMING_ARG \
         --output_dir "$OUTPUT_DIR" \
         --learning_rate "$LR" \

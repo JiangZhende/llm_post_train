@@ -31,8 +31,8 @@ pip install deepspeed
 
 | 用途 | 数据集 | 子集 | 规模 | 格式 |
 |------|--------|------|------|------|
-| SFT  | `HuggingFaceTB/smoltalk2` | `sft` | 3.4M | `messages`（list of dicts） |
-| DPO  | `HuggingFaceTB/smoltalk2` | `preference` | 447k | `prompt`（str）+ `chosen`/`rejected`（list of dicts） |
+| SFT  | `HuggingFaceTB/smoltalk` | `all` | ~1M | `messages`（list of dicts） |
+| DPO  | `trl-lib/ultrafeedback_binarized` | — | 62k | `chosen`/`rejected`（完整对话 list of dicts） |
 
 国内可通过镜像加速下载，在 sh 文件中切换：
 
@@ -69,7 +69,7 @@ STRATEGY=fsdp bash sft.sh
 | `BS_PER_GPU` | `8` | 每卡 batch size（mac 策略固定为 1） |
 | `GRAD_ACCUM` | `4` | 梯度累积，等效 batch = BS × ACCUM × GPU 数 |
 | `STEPS` | `500` | 训练步数 |
-| `STREAMING` | `false` | 数据集过大时开启流式加载 |
+| `STREAMING` | `true` | 流式加载（smoltalk2 较大，默认开启） |
 | `OUTPUT_DIR` | `./output_mac_smollm2` | 模型输出目录 |
 
 ### LoRA（可选，7B+ 模型推荐）

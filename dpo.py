@@ -125,22 +125,25 @@ def main():
     if args.streaming and dpo_config.max_steps <= 0:
         raise ValueError("streaming=True 时必须设置 --max_steps")
 
-    # 格式化为 DPOTrainer 期望的 prompt/chosen/rejected 字符串
-    # smoltalk2 preference 的 prompt 列是纯字符串，chosen/rejected 是 list[dict]
     def format_chat(example):
-        prompt = example[args.prompt_column]
-        if isinstance(prompt, str):
-            prompt = [{"role": "user", "content": prompt}]
+        chosen = example[args.chosen_column]
+        rejected = example[args.rejected_column]
+
+        # 若有独立 prompt 列（如 smoltalk2 preference），直接使用
+        # 若无（如 ultrafeedback_binarized），从 chosen 对话中提取除最后一轮外的所有内容作为 prompt
+        if args.prompt_column in example:
+            prompt = example[args.prompt_column]
+            if isinstance(prompt, str):
+                prompt = [{"role": "user", "content": prompt}]
+        else:
+            prompt = chosen[:-1]  # 去掉最后一条 assistant 回复，剩余为 prompt
+
         return {
             "prompt": tokenizer.apply_chat_template(
                 prompt, tokenize=False, add_generation_prompt=True
             ),
-            "chosen": tokenizer.apply_chat_template(
-                example[args.chosen_column], tokenize=False
-            ),
-            "rejected": tokenizer.apply_chat_template(
-                example[args.rejected_column], tokenize=False
-            ),
+            "chosen": tokenizer.apply_chat_template(chosen, tokenize=False),
+            "rejected": tokenizer.apply_chat_template(rejected, tokenize=False),
         }
 
     train_dataset = raw.map(format_chat)

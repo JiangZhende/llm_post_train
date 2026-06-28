@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 class ModelArguments:
     model_id: str = field(default="HuggingFaceTB/SmolLM2-135M", metadata={"help": "Hugging Face 模型 ID 或本地路径"})
     dataset_path: str = field(default="HuggingFaceTB/smoltalk", metadata={"help": "数据集名称"})
-    dataset_name: str = field(default="all", metadata={"help": "数据集配置子集"})
+    dataset_name: str = field(default="all", metadata={"help": "数据集配置子集（config name）"})
+    dataset_split: str = field(default="", metadata={"help": "指定 split 名称（留空则自动取 train split）。smoltalk2 等无 train split 的数据集需要显式指定，如 smoltalk_smollm3_smol_magpie_ultra_no_think"})
     streaming: bool = field(default=False, metadata={"help": "是否开启流式加载数据集"})
     chat_template_model: Optional[str] = field(default=None, metadata={"help": "用于 clone_chat_template 的参考模型 ID，如果为空则使用当前模型 ID"})
     verbose: bool = field(default=False, metadata={"help": "是否打印调试样本和 tokenization 信息"})
@@ -125,32 +126,65 @@ def main():
         logger.info("="*40)
 
     # 6. 加载数据
-    raw_datasets = load_dataset(
-        model_args.dataset_path,
-        model_args.dataset_name,
-        streaming=model_args.streaming,
-    )
+    base_load_kwargs = dict(streaming=model_args.streaming)
+    if model_args.dataset_name:
+        base_load_kwargs["name"] = model_args.dataset_name
 
-    train_dataset = raw_datasets["train"] if isinstance(raw_datasets, dict) and "train" in raw_datasets else raw_datasets
+    split_arg = model_args.dataset_split.strip()
+
+    if not split_arg:
+        # 未指定 split：加载 DatasetDict，从中取 train/test
+        raw_datasets = load_dataset(model_args.dataset_path, **base_load_kwargs)
+        if not (isinstance(raw_datasets, dict) and "train" in raw_datasets):
+            raise ValueError(
+                f"数据集 {model_args.dataset_path!r} 没有 'train' split。\n"
+                "请通过 --dataset_split 指定 split 名称，或设置 --dataset_split ALL 合并所有 split。\n"
+                "  可用 split：python -c \"from datasets import load_dataset_builder; "
+                f"b=load_dataset_builder('{model_args.dataset_path}', '{model_args.dataset_name}'); print(list(b.info.splits))\""
+            )
+        train_dataset = raw_datasets["train"]
+        eval_dataset = raw_datasets.get("test") or raw_datasets.get("validation")
+
+    elif split_arg.upper() == "ALL" or "," in split_arg:
+        # ALL：自动发现全部 split；逗号列表：指定若干 split
+        from datasets import load_dataset_builder, interleave_datasets, concatenate_datasets
+        if split_arg.upper() == "ALL":
+            builder = load_dataset_builder(
+                model_args.dataset_path,
+                model_args.dataset_name if model_args.dataset_name else None,
+            )
+            splits = list(builder.info.splits.keys())
+            if sft_config.local_rank <= 0:
+                logger.info(f"ALL 模式：合并 {len(splits)} 个 split，共 "
+                            f"{sum(v.num_examples for v in builder.info.splits.values()):,} 条样本")
+        else:
+            splits = [s.strip() for s in split_arg.split(",")]
+
+        if model_args.streaming:
+            split_datasets = [
+                load_dataset(model_args.dataset_path, split=s, **base_load_kwargs)
+                for s in splits
+            ]
+            # interleave 按各 split 样本量加权采样，保持数据分布
+            train_dataset = interleave_datasets(split_datasets, seed=42, stopping_strategy="all_exhausted")
+        else:
+            train_dataset = load_dataset(
+                model_args.dataset_path, split="+".join(splits), **base_load_kwargs
+            )
+        eval_dataset = None
+
+    else:
+        # 单个 split 名称
+        train_dataset = load_dataset(
+            model_args.dataset_path, split=split_arg, **base_load_kwargs
+        )
+        eval_dataset = None
 
     if model_args.streaming:
         if sft_config.max_steps <= 0:
             raise ValueError("使用 streaming=True 时，必须设置 max_steps (例如 --max_steps 1000)")
         eval_dataset = None
         sft_config.eval_strategy = "no"  # 流式数据集无法做 eval，强制关闭
-        if sft_config.assistant_only_loss:
-            # TRL 1.6 在 streaming 模式下会先将 messages 转为字符串再检查格式，
-            # 导致 is_conversational 收到 str 而非 dict，触发 AttributeError。
-            sft_config.assistant_only_loss = False
-            if sft_config.local_rank <= 0:
-                logger.warning(
-                    "streaming 模式下 TRL 1.6 不支持 assistant_only_loss，已自动关闭。"
-                    "loss 将覆盖所有 token（含 user turn），不影响训练正常运行。"
-                )
-    else:
-        eval_dataset = None
-        if isinstance(raw_datasets, dict):
-            eval_dataset = raw_datasets.get("test") or raw_datasets.get("validation")
 
     # 7. 调试：打印第一条样本的格式（仅 verbose 模式）
     if model_args.verbose and sft_config.local_rank <= 0:
