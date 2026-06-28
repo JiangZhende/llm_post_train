@@ -6,6 +6,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 # export HF_ENDPOINT=http://192.168.50.202:18090
 
 MODEL_ID="HuggingFaceTB/SmolLM2-135M"
+CHAT_TEMPLATE_MODEL="HuggingFaceTB/SmolLM2-135M-Instruct"  # 从 Instruct 版拷贝 chat template 到 base model
 DATASET="HuggingFaceTB/smoltalk2"
 DATASET_NAME="sft"
 STRATEGY="mac" # 可选: deepspeed / fsdp / mac
@@ -60,6 +61,7 @@ if [ "$STRATEGY" == "deepspeed" ]; then
 
     torchrun --nproc_per_node="$NUM_GPUS" sft.py \
         --model_id "$MODEL_ID" \
+        --chat_template_model "$CHAT_TEMPLATE_MODEL" \
         --dataset_path "$DATASET" \
         --dataset_name "$DATASET_NAME" \
         $STREAMING_ARG \
@@ -88,6 +90,7 @@ elif [ "$STRATEGY" == "fsdp" ]; then
     FSDP_CONFIG="{\"transformer_layer_cls_to_wrap\": \"$FSDP_DECODER_LAYER\"}"
     torchrun --nproc_per_node="$NUM_GPUS" sft.py \
         --model_id "$MODEL_ID" \
+        --chat_template_model "$CHAT_TEMPLATE_MODEL" \
         --dataset_path "$DATASET" \
         --dataset_name "$DATASET_NAME" \
         $STREAMING_ARG \
@@ -118,6 +121,7 @@ elif [ "$STRATEGY" == "mac" ]; then
 
     python sft.py \
         --model_id "$MODEL_ID" \
+        --chat_template_model "$CHAT_TEMPLATE_MODEL" \
         --dataset_path "$DATASET" \
         --dataset_name "$DATASET_NAME" \
         $STREAMING_ARG \

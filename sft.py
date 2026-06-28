@@ -85,8 +85,15 @@ def main():
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
     # 统一设置聊天模板（必须在 LoRA 之前：若新增 token 需 resize embedding，新行应在可训练的 base model 上）
-    template_model = model_args.chat_template_model or model_args.model_id
-    model, tokenizer, added_tokens = clone_chat_template(model, tokenizer, template_model)
+    # clone_chat_template 设计用于从另一个 instruct 模型拷贝模板，需显式指定 --chat_template_model
+    added_tokens = []
+    if model_args.chat_template_model:
+        model, tokenizer, added_tokens = clone_chat_template(model, tokenizer, model_args.chat_template_model)
+    elif tokenizer.chat_template is None:
+        raise ValueError(
+            "Tokenizer 没有 chat_template，请通过 --chat_template_model 指定一个带模板的模型，例如：\n"
+            f"  --chat_template_model {model_args.model_id}-Instruct"
+        )
 
     if model_args.use_lora:
         from peft import LoraConfig, get_peft_model, TaskType
