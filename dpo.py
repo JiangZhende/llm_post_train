@@ -116,27 +116,58 @@ def main():
             p.requires_grad_(False)
 
     # 加载数据集
-    load_kwargs = dict(streaming=args.streaming)
+    base_load_kwargs = dict(streaming=args.streaming)
     if args.dataset_name:
-        load_kwargs["name"] = args.dataset_name
-
-    raw = load_dataset(args.dataset_path, split=args.dataset_split, **load_kwargs)
+        base_load_kwargs["name"] = args.dataset_name
 
     if args.streaming and dpo_config.max_steps <= 0:
         raise ValueError("streaming=True 时必须设置 --max_steps")
+
+    split_arg = args.dataset_split.strip()
+
+    if not split_arg or split_arg == "train":
+        # 标准数据集（有 train split）
+        raw = load_dataset(args.dataset_path, split="train", **base_load_kwargs)
+        eval_split = "test"
+    elif split_arg.upper() == "ALL" or "," in split_arg:
+        # 合并多个 split（smoltalk2 Preference 无 train split）
+        from datasets import load_dataset_builder, interleave_datasets, concatenate_datasets
+        if split_arg.upper() == "ALL":
+            builder = load_dataset_builder(
+                args.dataset_path,
+                args.dataset_name if args.dataset_name else None,
+            )
+            splits = list(builder.info.splits.keys())
+            logger.info(f"ALL 模式：合并 {len(splits)} 个 split，共 "
+                        f"{sum(v.num_examples for v in builder.info.splits.values()):,} 条样本")
+        else:
+            splits = [s.strip() for s in split_arg.split(",")]
+
+        if args.streaming:
+            raw = interleave_datasets(
+                [load_dataset(args.dataset_path, split=s, **base_load_kwargs) for s in splits],
+                seed=42, stopping_strategy="all_exhausted",
+            )
+        else:
+            raw = load_dataset(args.dataset_path, split="+".join(splits), **base_load_kwargs)
+        eval_split = None
+    else:
+        # 单个指定 split
+        raw = load_dataset(args.dataset_path, split=split_arg, **base_load_kwargs)
+        eval_split = None
 
     def format_chat(example):
         chosen = example[args.chosen_column]
         rejected = example[args.rejected_column]
 
-        # 若有独立 prompt 列（如 smoltalk2 preference），直接使用
-        # 若无（如 ultrafeedback_binarized），从 chosen 对话中提取除最后一轮外的所有内容作为 prompt
+        # smoltalk2 preference: prompt 是纯字符串，包一层 user message
+        # ultrafeedback_binarized: 无 prompt 列，从 chosen 对话提取
         if args.prompt_column in example:
             prompt = example[args.prompt_column]
             if isinstance(prompt, str):
                 prompt = [{"role": "user", "content": prompt}]
         else:
-            prompt = chosen[:-1]  # 去掉最后一条 assistant 回复，剩余为 prompt
+            prompt = chosen[:-1]
 
         return {
             "prompt": tokenizer.apply_chat_template(
@@ -148,18 +179,17 @@ def main():
 
     train_dataset = raw.map(format_chat)
 
-    # 尝试加载 test split 作为 eval；若数据集无 test split 则关闭 eval
+    # eval dataset：有 test split 则加载，否则关闭 eval
     eval_dataset = None
-    if not args.streaming:
+    if not args.streaming and eval_split:
         try:
-            load_kwargs_eval = dict()
-            if args.dataset_name:
-                load_kwargs_eval["name"] = args.dataset_name
-            raw_eval = load_dataset(args.dataset_path, split="test", **load_kwargs_eval)
+            raw_eval = load_dataset(args.dataset_path, split=eval_split, **base_load_kwargs)
             eval_dataset = raw_eval.map(format_chat)
         except Exception:
-            logger.warning("未找到 test split，跳过 eval（eval_strategy 将被忽略）")
+            logger.warning(f"未找到 {eval_split} split，跳过 eval")
             dpo_config.eval_strategy = "no"
+    elif not eval_split:
+        dpo_config.eval_strategy = "no"
 
     if dpo_config.local_rank <= 0:
         logger.info("="*40)

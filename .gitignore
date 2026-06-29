@@ -1,6 +1,30 @@
-__pycache__
-.vscode
-eval_results
-outputs
-search-r1
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# 训练输出（模型权重体积大，不提交）
+output_*/
+runs/
+wandb/
+
+# 评测结果（本地数据，按需提交）
+eval_results/
+
+# 数据集缓存
+data/
+datasets/
+
+# 旧目录
+outputs/
+search-r1/
+
+# 临时文件
 test.py
+*.log

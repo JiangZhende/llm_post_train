@@ -1,0 +1,25 @@
+[project]
+name = "llm-post-train"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.1",
+    "transformers>=4.40",
+    "trl>=1.7",
+    "peft>=0.11",
+    "datasets>=2.18",
+    "accelerate>=0.30",
+    "lm-eval>=0.4",
+]
+
+[project.optional-dependencies]
+deepspeed = ["deepspeed>=0.14"]
+
+# Linux + CUDA：取消注释以下两节，覆盖默认的 CPU torch
+# [[tool.uv.index]]
+# name = "pytorch-cu124"
+# url = "https://download.pytorch.org/whl/cu124"
+# explicit = true
+#
+# [tool.uv.sources]
+# torch = { index = "pytorch-cu124" }

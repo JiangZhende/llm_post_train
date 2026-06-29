@@ -2,7 +2,7 @@
 set -e
 
 # --- 基础配置 ---
-# export HF_ENDPOINT=https://hf-mirror.com/
+# export HF_ENDPOINT=https://hf-mirror.com
 # export HF_ENDPOINT=http://192.168.50.202:18090
 
 MODEL_ID="HuggingFaceTB/SmolLM2-135M"
@@ -59,7 +59,9 @@ BS_PER_GPU=8
 GRAD_ACCUM=4
 STEPS=500
 STREAMING=true
-OUTPUT_DIR="./output_${STRATEGY}_smollm2"
+OUTPUT_DIR="./output_${STRATEGY}_smollm3"
+LOG_DIR="./runs/sft_$(date +%Y%m%d_%H%M%S)"
+REPORT_TO="tensorboard"   # tensorboard | wandb | none
 
 # FSDP 需要指定模型的 decoder layer 类名，换模型时同步修改
 # SmolLM2/Llama → LlamaDecoderLayer, Qwen2 → Qwen2DecoderLayer, Mistral → MistralDecoderLayer
@@ -98,6 +100,8 @@ if [ "$STRATEGY" == "deepspeed" ]; then
         --weight_decay 0.01 \
         --max_length 2048 \
         --max_steps "$STEPS" \
+        --logging_dir "$LOG_DIR" \
+        --report_to "$REPORT_TO" \
         --logging_steps 10 \
         --save_steps 100 \
         --eval_strategy steps \
@@ -128,6 +132,8 @@ elif [ "$STRATEGY" == "fsdp" ]; then
         --weight_decay 0.01 \
         --max_length 2048 \
         --max_steps "$STEPS" \
+        --logging_dir "$LOG_DIR" \
+        --report_to "$REPORT_TO" \
         --logging_steps 10 \
         --save_steps 100 \
         --eval_strategy steps \
@@ -160,6 +166,8 @@ elif [ "$STRATEGY" == "mac" ]; then
         --weight_decay 0.01 \
         --max_length 2048 \
         --max_steps "$STEPS" \
+        --logging_dir "$LOG_DIR" \
+        --report_to "$REPORT_TO" \
         --logging_steps 10 \
         --save_steps 100 \
         --eval_strategy steps \

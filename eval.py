@@ -6,10 +6,13 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# ifeval：指令遵循（SFT 主指标）
-# arc_challenge/hellaswag：通用推理保底，检查 SFT 后有无退化
-# truthfulqa_mc2：检查 SFT 后幻觉是否增加（smoltalk 场景下重要）
-DEFAULT_TASKS = "arc_challenge,hellaswag,ifeval,truthfulqa_mc2"
+# 针对 smoltalk2 后训练的评测任务：
+#   ifeval          指令遵循（SFT 核心指标，smol_magpie_ultra 数据直接对应）
+#   gsm8k_cot       数学推理 + 思维链（OpenThoughts3 占 SFT 数据约 50%，最需验证）
+#   arc_challenge   常识推理，检查 SFT 后有无退化
+#   truthfulqa_mc2  抗幻觉（preference 数据对齐后应有提升）
+#   hellaswag       句子补全，通用能力保底
+DEFAULT_TASKS = "arc_challenge,hellaswag,ifeval,gsm8k_cot,truthfulqa_mc2"
 
 
 def parse_args():
@@ -22,8 +25,8 @@ def parse_args():
     parser.add_argument("--batch_size", default="auto",
                         help="batch size，auto 自动寻找不 OOM 的最大值")
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
-    parser.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16", "float32"],
-                        help="推理精度：A100/H100 用 bfloat16，旧卡用 float16，Mac 用 float32")
+    parser.add_argument("--dtype", default="auto", choices=["auto", "bfloat16", "float16", "float32"],
+                        help="推理精度：auto=自动（CPU→float32，CUDA→bfloat16），或手动指定")
     parser.add_argument("--apply_chat_template", action="store_true", default=True,
                         help="对 SFT 模型评测时套用 chat template（默认开启）；"
                              "评测原始 base 模型时传 --no_apply_chat_template")
@@ -33,10 +36,17 @@ def parse_args():
 
 
 def run_eval(model_path, tasks, limit, batch_size, device, dtype, apply_chat_template=True):
+    import torch
     from lm_eval import evaluator
+
+    # auto dtype：无 GPU 时用 float32，有 GPU 时用 bfloat16
+    if dtype == "auto":
+        dtype = "bfloat16" if torch.cuda.is_available() else "float32"
+
+    model_args = f"pretrained={model_path},dtype={dtype},trust_remote_code=True"
     return evaluator.simple_evaluate(
         model="hf",
-        model_args=f"pretrained={model_path},dtype={dtype}",
+        model_args=model_args,
         tasks=tasks,
         batch_size=batch_size,
         limit=limit,

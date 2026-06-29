@@ -6,9 +6,13 @@ set -e
 export HF_ENDPOINT=http://192.168.50.202:18090
 
 MODEL_ID="HuggingFaceTB/SmolLM2-135M"
-DATASET="trl-lib/ultrafeedback_binarized"
-DATASET_NAME=""         # 无子集配置
-DATASET_SPLIT="train"
+DATASET="HuggingFaceTB/smoltalk2"
+DATASET_NAME="Preference"
+# smoltalk2 Preference 无 train split，需显式指定：
+#   llama_3.1_tulu_3_8b_preference_mixture_no_think  (230k，无思维链，推荐)
+#   tulu_3_8b_pref_mix_Qwen3_32B_Qwen3_0.6B_think   (216k，含思维链)
+#   ALL                                               (合并两者，~447k)
+DATASET_SPLIT="llama_3.1_tulu_3_8b_preference_mixture_no_think"
 STRATEGY="mac" # 可选: deepspeed / fsdp / mac
 
 # 自动检测 GPU 数量，允许环境变量覆盖
@@ -24,6 +28,8 @@ GRAD_ACCUM=4
 STEPS=500
 STREAMING=false
 OUTPUT_DIR="./output_${STRATEGY}_dpo"
+LOG_DIR="./runs/dpo_$(date +%Y%m%d_%H%M%S)"
+REPORT_TO="tensorboard"   # tensorboard | wandb | none
 
 # FSDP decoder layer 类名，换模型时同步修改
 FSDP_DECODER_LAYER="LlamaDecoderLayer"
@@ -67,6 +73,8 @@ if [ "$STRATEGY" == "deepspeed" ]; then
         --per_device_train_batch_size "$BS_PER_GPU" \
         --gradient_accumulation_steps "$GRAD_ACCUM" \
         --max_steps "$STEPS" \
+        --logging_dir "$LOG_DIR" \
+        --report_to "$REPORT_TO" \
         --logging_steps 10 \
         --save_steps 100 \
         --eval_strategy steps \
@@ -97,6 +105,8 @@ elif [ "$STRATEGY" == "fsdp" ]; then
         --per_device_train_batch_size "$BS_PER_GPU" \
         --gradient_accumulation_steps "$GRAD_ACCUM" \
         --max_steps "$STEPS" \
+        --logging_dir "$LOG_DIR" \
+        --report_to "$REPORT_TO" \
         --logging_steps 10 \
         --save_steps 100 \
         --eval_strategy steps \
@@ -131,6 +141,8 @@ elif [ "$STRATEGY" == "mac" ]; then
         --per_device_train_batch_size 1 \
         --gradient_accumulation_steps 8 \
         --max_steps "$STEPS" \
+        --logging_dir "$LOG_DIR" \
+        --report_to "$REPORT_TO" \
         --logging_steps 10 \
         --save_steps 100 \
         --eval_strategy steps \
