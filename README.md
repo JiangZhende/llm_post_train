@@ -1,15 +1,15 @@
 # LLM Post-Training：SFT → DPO → Eval
 
-基于 [HuggingFaceTB/SmolLM2](https://huggingface.co/HuggingFaceTB/SmolLM2-360M) 和 [smoltalk2](https://huggingface.co/datasets/HuggingFaceTB/smoltalk2) 的完整后训练流程。
+基于 [HuggingFaceTB/SmolLM2-360M](https://huggingface.co/HuggingFaceTB/SmolLM2-360M)（训练）和 [smoltalk2](https://huggingface.co/datasets/HuggingFaceTB/smoltalk2)（数据）的完整后训练流程。
 
 ```
-Base Model
+Base Model（SmolLM2-135M）
     │
     ▼  sft.sh / sft.py
 SFT Model   ←  smoltalk2 SFT（~3.3M 对话，含推理/指令/工具调用）
     │
     ▼  dpo.sh / dpo.py
-DPO Model   ←  ultrafeedback_binarized（62k chosen/rejected 对）
+DPO Model   ←  smoltalk2 Preference（~447k chosen/rejected 对）
     │
     ▼  eval.sh / eval.py
 评测结果（ifeval / gsm8k_cot / arc / hellaswag / truthfulqa）
@@ -127,8 +127,8 @@ DPO 在 SFT 模型基础上做偏好对齐，将 `MODEL_ID` 改为 SFT 输出路
 ### 快速启动
 
 ```bash
-# 先改 dpo.sh 中 MODEL_ID 为 SFT 输出路径
-MODEL_ID="./output_mac_smollm3"
+# 先在 dpo.sh 中将 MODEL_ID 改为 SFT 输出路径：
+# MODEL_ID="./output_mac_smollm3"
 
 # Mac
 bash dpo.sh
