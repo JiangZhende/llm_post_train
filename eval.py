@@ -56,14 +56,65 @@ def run_eval(model_path, tasks, limit, batch_size, device, dtype, apply_chat_tem
     )
 
 
+# 各任务的「主指标」候选（按优先级），用于从 lm-eval 的 results 中取分。
+# key 格式为 "<metric>,<filter>"，与 lm-eval 输出一致。
+# 不同任务的 filter 不一样：MC 任务多为 none，gsm8k_cot 是 strict-match，ifeval 是 none。
+_TASK_PRIMARY_METRICS = {
+    "arc_challenge":     ["acc_norm,none", "acc,none"],
+    "hellaswag":         ["acc_norm,none", "acc,none"],
+    "truthfulqa_mc1":    ["acc,none"],
+    "truthfulqa_mc2":    ["acc,none"],
+    "gsm8k":             ["exact_match,strict-match", "exact_match,flexible-match", "exact_match,none"],
+    "gsm8k_cot":         ["exact_match,strict-match", "exact_match,flexible-match", "exact_match,none"],
+    "ifeval":            ["prompt_level_strict_acc,none", "instruction_level_strict_acc,none",
+                          "prompt_level_loose_acc,none", "instruction_level_loose_acc,none"],
+    # 通用兜底：按常见指标名匹配（忽略 filter 后缀）
+}
+# 兜底候选：当任务不在上表时，按此顺序找第一个匹配项（metric 名匹配，filter 任意）
+_FALLBACK_METRICS = ["acc_norm", "acc", "exact_match", "f1", "prompt_level_strict_acc"]
+
+
 def extract_scores(results):
-    """每个任务取主指标：acc_norm > acc > f1 > exact_match"""
+    """从 lm-eval results 中取每个任务的主指标。
+
+    优先用 _TASK_PRIMARY_METRICS 的精确 (metric,filter) 匹配；
+    匹配不到则按 metric 名（忽略 filter）兜底；再不行取第一个非 stderr/别名字段。
+    """
     scores = {}
     for task, metrics in results["results"].items():
-        for key in ["acc_norm,none", "acc,none", "f1,none", "exact_match,none"]:
+        if not isinstance(metrics, dict):
+            continue
+        value = None
+
+        # 1) 任务专属精确匹配
+        for key in _TASK_PRIMARY_METRICS.get(task, []):
             if key in metrics:
-                scores[task] = metrics[key]
+                value = metrics[key]
                 break
+
+        # 2) 按 metric 名兜底（忽略 filter 后缀）
+        if value is None:
+            for m in _FALLBACK_METRICS:
+                for k, v in metrics.items():
+                    if k.split(",", 1)[0] == m and isinstance(v, (int, float)):
+                        value = v
+                        break
+                if value is not None:
+                    break
+
+        # 3) 最终兜底：取第一个数值型字段
+        if value is None:
+            for k, v in metrics.items():
+                if k.endswith("_stderr") or k == "alias":
+                    continue
+                if isinstance(v, (int, float)):
+                    value = v
+                    break
+
+        if value is not None:
+            scores[task] = value
+        else:
+            logger.warning(f"任务 {task!r} 未找到任何可用指标，原始 metrics: {metrics}")
     return scores
 
 
