@@ -30,6 +30,11 @@ class ScriptArguments:
     prompt_column: str = field(default="prompt", metadata={"help": "prompt 列名"})
     chosen_column: str = field(default="chosen", metadata={"help": "chosen 列名"})
     rejected_column: str = field(default="rejected", metadata={"help": "rejected 列名"})
+    enable_thinking: bool = field(
+        default=False,
+        metadata={"help": "apply_chat_template 时是否开启思维链（Qwen3 think 模式）；"
+                          "使用 no_think 数据时保持 False"},
+    )
     # LoRA（可选）
     use_lora: bool = field(default=False, metadata={"help": "是否使用 LoRA"})
     lora_r: int = field(default=8)
@@ -156,6 +161,16 @@ def main():
         raw = load_dataset(args.dataset_path, split=split_arg, **base_load_kwargs)
         eval_split = None
 
+    # Qwen3 的 apply_chat_template 支持 enable_thinking 参数控制是否输出 <think> 块；
+    # 其他模型的 tokenizer 不认识这个参数，用 try/except 兼容。
+    def _apply_template(messages, **kwargs):
+        try:
+            return tokenizer.apply_chat_template(
+                messages, tokenize=False, enable_thinking=args.enable_thinking, **kwargs
+            )
+        except TypeError:
+            return tokenizer.apply_chat_template(messages, tokenize=False, **kwargs)
+
     def format_chat(example):
         chosen = example[args.chosen_column]
         rejected = example[args.rejected_column]
@@ -170,11 +185,9 @@ def main():
             prompt = chosen[:-1]
 
         return {
-            "prompt": tokenizer.apply_chat_template(
-                prompt, tokenize=False, add_generation_prompt=True
-            ),
-            "chosen": tokenizer.apply_chat_template(chosen, tokenize=False),
-            "rejected": tokenizer.apply_chat_template(rejected, tokenize=False),
+            "prompt":   _apply_template(prompt, add_generation_prompt=True),
+            "chosen":   _apply_template(chosen),
+            "rejected": _apply_template(rejected),
         }
 
     train_dataset = raw.map(format_chat)

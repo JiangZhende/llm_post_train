@@ -1,9 +1,9 @@
 # LLM Post-Training：SFT → DPO → Eval
 
-基于 [HuggingFaceTB/SmolLM2-360M](https://huggingface.co/HuggingFaceTB/SmolLM2-360M)（训练）和 [smoltalk2](https://huggingface.co/datasets/HuggingFaceTB/smoltalk2)（数据）的完整后训练流程。
+基于 [HuggingFaceTB/SmolLM2](https://huggingface.co/collections/HuggingFaceTB/smollm2-6723884218bcda64b34d7db9) 和 [smoltalk2](https://huggingface.co/datasets/HuggingFaceTB/smoltalk2) 的完整后训练流程。
 
 ```
-Base Model（SmolLM2-135M）
+Base Model（SmolLM2）
     │
     ▼  sft.sh / sft.py
 SFT Model   ←  smoltalk2 SFT（~3.3M 对话，含推理/指令/工具调用）
@@ -76,7 +76,7 @@ STRATEGY=fsdp bash sft.sh
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MODEL_ID` | `SmolLM2-135M` | 模型 ID 或本地路径 |
+| `MODEL_ID` | `SmolLM2` | 模型 ID 或本地路径 |
 | `DATASET` | `HuggingFaceTB/smoltalk2` | 数据集 |
 | `DATASET_NAME` | `SFT` | smoltalk2 的配置名 |
 | `DATASET_SPLIT` | `ALL` | `ALL`=全部合并；单个 split 名；逗号分隔多个 |
@@ -127,8 +127,7 @@ DPO 在 SFT 模型基础上做偏好对齐，将 `MODEL_ID` 改为 SFT 输出路
 ### 快速启动
 
 ```bash
-# 先在 dpo.sh 中将 MODEL_ID 改为 SFT 输出路径：
-# MODEL_ID="./output_mac_smollm3"
+# 先在 dpo.sh 中将 MODEL_ID 改为 SFT 输出路径
 
 # Mac
 bash dpo.sh
@@ -141,7 +140,7 @@ STRATEGY=deepspeed bash dpo.sh
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MODEL_ID` | `SmolLM2-135M` | **建议改为 SFT 输出路径** |
+| `MODEL_ID` | `SmolLM2`（同 SFT） | **建议改为 SFT 输出路径** |
 | `DATASET` | `HuggingFaceTB/smoltalk2` | 偏好数据集 |
 | `DATASET_NAME` | `Preference` | smoltalk2 的偏好配置 |
 | `DATASET_SPLIT` | `llama_3.1_tulu_3_8b_preference_mixture_no_think` | 无 train split，需显式指定；`ALL` 合并两个 split（~447k） |
@@ -191,7 +190,7 @@ STAGE=dpo bash eval.sh
 # SFT 效果对比 base
 python eval.py \
     --model ./output_mac_smollm3 \
-    --base_model HuggingFaceTB/SmolLM2-360M \
+    --base_model HuggingFaceTB/SmolLM2 \
     --tasks arc_challenge,hellaswag,ifeval,gsm8k_cot,truthfulqa_mc2
 
 # DPO 效果对比 SFT
@@ -203,12 +202,11 @@ python eval.py \
 # 快速验证（每任务 100 条）
 python eval.py \
     --model ./output_mac_smollm3 \
-    --limit 100 \
-    --dtype float32
+    --limit 100
 
 # base 模型 baseline（不套 chat template）
 python eval.py \
-    --model HuggingFaceTB/SmolLM2-360M \
+    --model HuggingFaceTB/SmolLM2 \
     --no_apply_chat_template
 ```
 

@@ -14,11 +14,16 @@ logger = logging.getLogger(__name__)
 #   hellaswag       句子补全，通用能力保底
 DEFAULT_TASKS = "arc_challenge,hellaswag,ifeval,gsm8k_cot,truthfulqa_mc2"
 
+# 依赖生成（generation）的任务：base 模型不套 chat template 时结果几乎无意义
+_GENERATION_TASKS = {"ifeval", "gsm8k_cot", "gsm8k"}
+
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="lm-evaluation-harness 评测脚本，支持 base vs SFT 对比")
-    parser.add_argument("--model", required=True, help="SFT 模型路径或 HF model ID")
-    parser.add_argument("--base_model", default=None, help="Base 模型路径，用于计算 SFT delta（可选）")
+    parser = argparse.ArgumentParser(description="lm-evaluation-harness 评测脚本，支持 base vs SFT/DPO 对比")
+    parser.add_argument("--model", required=True, help="待评测模型路径或 HF model ID")
+    parser.add_argument("--base_model", default=None, help="对比基准模型路径（可选）")
+    parser.add_argument("--stage", default=None, choices=["base", "sft", "dpo"],
+                        help="评测阶段，写入 JSON 结果，影响表格标题（可选）")
     parser.add_argument("--tasks", default=DEFAULT_TASKS, help="逗号分隔的任务名")
     parser.add_argument("--limit", type=float, default=None,
                         help="每任务样本数（整数）或采样比例（0~1 小数），None=全量")
@@ -27,21 +32,26 @@ def parse_args():
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
     parser.add_argument("--dtype", default="auto", choices=["auto", "bfloat16", "float16", "float32"],
                         help="推理精度：auto=自动（CPU→float32，CUDA→bfloat16），或手动指定")
-    parser.add_argument("--apply_chat_template", action="store_true", default=True,
-                        help="对 SFT 模型评测时套用 chat template（默认开启）；"
-                             "评测原始 base 模型时传 --no_apply_chat_template")
-    parser.add_argument("--no_apply_chat_template", dest="apply_chat_template", action="store_false")
+    parser.add_argument("--apply_chat_template", action="store_true", default=False,
+                        help="SFT/DPO 模型评测时传此 flag，套用 chat template；base 模型不传")
+    parser.add_argument("--system_prompt", default=None,
+                        help="注入 system prompt（Qwen3 no-think 模式传 '/no_think'，"
+                             "禁止模型输出 <think> 块，避免干扰 ifeval 等生成任务的 judge）")
     parser.add_argument("--output_dir", default="./eval_results")
     return parser.parse_args()
 
 
-def run_eval(model_path, tasks, limit, batch_size, device, dtype, apply_chat_template=True):
+def run_eval(model_path, tasks, limit, batch_size, device, dtype,
+             apply_chat_template=True, system_prompt=None):
     import torch
     from lm_eval import evaluator
 
-    # auto dtype：无 GPU 时用 float32，有 GPU 时用 bfloat16
     if dtype == "auto":
         dtype = "bfloat16" if torch.cuda.is_available() else "float32"
+
+    # lm-eval 对 limit 的切片期望 int，float(100) 在部分版本会报 TypeError
+    if limit is not None and limit >= 1:
+        limit = int(limit)
 
     model_args = f"pretrained={model_path},dtype={dtype},trust_remote_code=True"
     return evaluator.simple_evaluate(
@@ -52,6 +62,7 @@ def run_eval(model_path, tasks, limit, batch_size, device, dtype, apply_chat_tem
         limit=limit,
         device=device,
         apply_chat_template=apply_chat_template,
+        system_instruction=system_prompt,  # lm-eval 的 system prompt 参数名
         log_samples=False,
     )
 
@@ -118,12 +129,12 @@ def extract_scores(results):
     return scores
 
 
-def print_table(sft_scores, base_scores=None):
+def print_table(sft_scores, base_scores=None, model_label="Model"):
     col_task = 32
     col_val = 9
-    header = f"{'Task':<{col_task}} {'SFT':>{col_val}}"
+    header = f"{'Task':<{col_task}} {model_label:>{col_val}}"
     if base_scores:
-        header += f" {'Base':>{col_val}} {'Delta':>{col_val}}"
+        header += f" {'Ref':>{col_val}} {'Delta':>{col_val}}"
     sep = "=" * len(header)
     print(f"\n{sep}\n{header}\n{'-' * len(header)}")
     for task, sft in sft_scores.items():
@@ -153,37 +164,54 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    logger.info(f"评测模型: {args.model}")
+    logger.info(f"评测模型: {args.model}  stage={args.stage or '未指定'}")
     logger.info(f"任务: {tasks}")
+    logger.info(f"apply_chat_template={'是（SFT/DPO 模式）' if args.apply_chat_template else '否（base 模式）'}")
 
-    logger.info(f"apply_chat_template={'是' if args.apply_chat_template else '否（base 模式）'}")
-    sft_results = run_eval(
+    # base 模型不套 chat template 时，生成型任务结果几乎无意义
+    if not args.apply_chat_template:
+        gen_overlap = [t for t in tasks if t in _GENERATION_TASKS]
+        if gen_overlap:
+            logger.warning(
+                f"以下任务为生成型任务，base 模型（无 chat template）的分数通常 <10%，仅供参考: {gen_overlap}"
+            )
+
+    if args.system_prompt:
+        logger.info(f"system_prompt: {args.system_prompt!r}")
+
+    model_scores = extract_scores(run_eval(
         args.model, tasks, args.limit, args.batch_size, args.device, args.dtype,
         apply_chat_template=args.apply_chat_template,
-    )
-    sft_scores = extract_scores(sft_results)
+        system_prompt=args.system_prompt,
+    ))
 
-    base_scores = None
+    ref_scores = None
     if args.base_model:
-        logger.info(f"评测 base 模型: {args.base_model}（不套 chat template）")
-        base_results = run_eval(
+        logger.info(f"评测对比模型: {args.base_model}（不套 chat template）")
+        if not args.apply_chat_template:
+            gen_overlap = [t for t in tasks if t in _GENERATION_TASKS]
+            if gen_overlap:
+                logger.warning(f"对比模型同样存在生成型任务问题: {gen_overlap}")
+        ref_scores = extract_scores(run_eval(
             args.base_model, tasks, args.limit, args.batch_size, args.device, args.dtype,
             apply_chat_template=False,
-        )
-        base_scores = extract_scores(base_results)
+        ))
 
-    print_table(sft_scores, base_scores)
+    model_label = (args.stage or "Model").upper()
+    print_table(model_scores, ref_scores, model_label=model_label)
 
     out = {
         "timestamp": timestamp,
+        "framework": "lm-eval",
+        "stage": args.stage,
         "model": args.model,
-        "base_model": args.base_model,
+        "ref_model": args.base_model,
         "tasks": tasks,
-        "sft_scores": sft_scores,
-        "base_scores": base_scores,
+        "model_scores": model_scores,
+        "ref_scores": ref_scores,
         "delta": (
-            {t: sft_scores[t] - base_scores.get(t, float("nan")) for t in sft_scores}
-            if base_scores else None
+            {t: model_scores[t] - ref_scores.get(t, float("nan")) for t in model_scores}
+            if ref_scores else None
         ),
     }
     out_path = os.path.join(args.output_dir, f"eval_{timestamp}.json")

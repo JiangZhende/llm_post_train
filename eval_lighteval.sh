@@ -1,14 +1,14 @@
 #!/bin/bash
 set -e
 export HF_ENDPOINT=https://hf-mirror.com
-# export HF_TOKEN=your_token_here   # 有限速问题时取消注释
+
 # --- 评测阶段 ---
 # base：评测原始 base 模型（无 chat template，仅 MC 任务）
 # sft ：评测 SFT 模型，与 base 对比
 # dpo ：评测 DPO 模型，与 SFT 对比
-STAGE="sft"
+STAGE="base"
 
-# --- 模型路径（根据 STAGE 自动切换对比基准）---
+# --- 模型路径 ---
 SFT_MODEL="./output_mac_smollm3"
 DPO_MODEL="./output_mac_dpo"
 BASE_MODEL="HuggingFaceTB/SmolLM2-360M"
@@ -29,7 +29,7 @@ fi
 
 # --- 评测任务 ---
 # base 阶段只跑 MC 任务（likelihood 打分），生成型任务（ifeval/gsm8k_cot）对 base 无意义
-# sft/dpo 阶段全跑
+# sft/dpo 阶段全跑；可额外加 mmlu / gpqa_diamond / gsm_plus
 if [ "$STAGE" == "base" ]; then
     TASKS="arc_challenge,hellaswag,truthfulqa_mc2"
 else
@@ -37,12 +37,10 @@ else
 fi
 
 # --- 评测参数 ---
-# LIMIT: 空=全量；正整数=每任务条数；小数=按比例采样
-# 快速验证用 100~200，正式评测置空
-LIMIT=""
-BATCH_SIZE="auto"
-# auto=自动（CPU/Mac→float32，CUDA→bfloat16）；或手动指定 float32/bfloat16/float16
-DTYPE="auto"
+# LIMIT: 空=全量；正整数=每任务条数（lighteval 只接受整数，不支持比例）
+LIMIT="10"
+BATCH_SIZE=""      # 空=使用默认值；或指定整数如 8
+DTYPE="bfloat16"
 DEVICE="auto"
 OUTPUT_DIR="./eval_results"
 
@@ -51,37 +49,42 @@ if [ -n "$LIMIT" ]; then
     LIMIT_ARG="--limit $LIMIT"
 fi
 
+BATCH_ARG=""
+if [ -n "$BATCH_SIZE" ]; then
+    BATCH_ARG="--batch_size $BATCH_SIZE"
+fi
+
 COMPARE_ARG=""
 if [ -n "$COMPARE_MODEL" ]; then
     COMPARE_ARG="--base_model $COMPARE_MODEL"
 fi
 
-# SFT/DPO 模型需要套 chat template，base 模型不需要
+# SFT/DPO 模型强制套 chat template，base 模型不套
 CHAT_TEMPLATE_ARG=""
 if [ "$STAGE" == "sft" ] || [ "$STAGE" == "dpo" ]; then
     CHAT_TEMPLATE_ARG="--apply_chat_template"
 fi
 
-# 确保 lm-eval 已安装
-if ! python -c "import lm_eval" 2>/dev/null; then
-    echo "lm-eval 未安装，正在安装..."
-    pip install lm-eval
+if ! python -c "import lighteval" 2>/dev/null; then
+    echo "lighteval 未安装，正在安装..."
+    pip install lighteval
 fi
 
 echo "-------------------------------------------"
-echo "Stage: $STAGE"
-echo "Model: $EVAL_MODEL"
+echo "Framework: lighteval"
+echo "Stage:   $STAGE"
+echo "Model:   $EVAL_MODEL"
 echo "Compare: ${COMPARE_MODEL:-（无对比）}"
-echo "Tasks: $TASKS"
+echo "Tasks:   $TASKS"
 echo "-------------------------------------------"
 
-python eval.py \
+python eval_lighteval.py \
     --model "$EVAL_MODEL" \
     $COMPARE_ARG \
     --stage "$STAGE" \
     --tasks "$TASKS" \
     $LIMIT_ARG \
-    --batch_size "$BATCH_SIZE" \
+    $BATCH_ARG \
     --dtype "$DTYPE" \
     --device "$DEVICE" \
     --output_dir "$OUTPUT_DIR" \
